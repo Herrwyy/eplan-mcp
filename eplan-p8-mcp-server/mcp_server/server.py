@@ -12,7 +12,9 @@ Two registration modes, selected with EPLAN_MCP_MODE:
 
 Requirements:
 - EPLAN installed
-- pip install pythonnet mcp
+- pip install -r requirements.txt
+  (locked, verified combination: mcp 1.30.0 / pythonnet 3.2.1 on
+  Windows x64 + Python 3.12 + EPLAN 2026; see INSTALL.md)
 """
 
 import json
@@ -510,9 +512,10 @@ def strip_schema_boilerplate(app):
 
     Safe because Tool.parameters is only ever serialised out to the client -
     argument validation goes through Tool.fn_metadata.call_fn_with_arg_validation,
-    not through this dict. There is no public FastMCP option for this in
-    mcp 1.28.x (its StrictJsonSchema generator is wired only into *output*
-    schemas), hence the post-registration pass.
+    not through this dict. There is no public FastMCP option for this as of
+    the verified mcp 1.30.0 (Tool's own `title` field exists, but nothing
+    stops Pydantic titling every parameters node), hence the post-registration
+    pass.
 
     Set EPLAN_MCP_KEEP_SCHEMA_TITLES=1 to skip it if a client ever turns out to
     depend on the titles.
@@ -580,21 +583,28 @@ mcp, REGISTRY, _loaded_extensions = build_app(MODE)
 # ============================================================================
 
 if __name__ == "__main__":
+    # Startup banner goes to STDERR. In stdio mode stdout is the JSON-RPC
+    # channel and must carry protocol frames and nothing else: a plain-text
+    # banner ahead of the first frame is enough for a strict client to reject
+    # the server (or fail parsing) before initialize ever completes. stderr is
+    # the diagnostics channel in every transport.
     installed = detect_installed_versions()
-    print("EPLAN MCP Server")
+    print("EPLAN MCP Server", file=sys.stderr)
     if installed:
         versions = ", ".join(i["full_version"] for i in installed)
-        print(f"Installed EPLAN versions: {versions} (auto-targets the newest)")
+        print(f"Installed EPLAN versions: {versions} (auto-targets the newest)",
+              file=sys.stderr)
     else:
-        print("WARNING: no EPLAN installation detected")
-    print("-" * 40)
+        print("WARNING: no EPLAN installation detected", file=sys.stderr)
+    print("-" * 40, file=sys.stderr)
     print(f"Mode: {MODE} ({len(REGISTRY.published_names())} of {len(REGISTRY)} "
-          f"tools published)")
+          f"tools published)", file=sys.stderr)
     if MODE == "discovery":
         print("Hidden tools are reachable via eplan_tools_search / "
-              "eplan_tools_describe / eplan_tools_call")
-    print("All actions run as eplan_* (C# script under QuietMode)")
-    print("-" * 40)
+              "eplan_tools_describe / eplan_tools_call", file=sys.stderr)
+    print("All actions run as eplan_* (C# script under QuietMode)",
+          file=sys.stderr)
+    print("-" * 40, file=sys.stderr)
 
     # Transport selection: stdio (default) or streamable-http for running the
     # server on the EPLAN machine and connecting from another machine
@@ -614,7 +624,8 @@ if __name__ == "__main__":
             sys.exit(f"MCP_PORT must be an integer in 1..65535, got {raw_port!r}")
         mcp.settings.host = os.environ.get("MCP_HOST", "127.0.0.1")
         mcp.settings.port = port
-        print(f"Transport: streamable-http on {mcp.settings.host}:{mcp.settings.port}")
+        print(f"Transport: streamable-http on {mcp.settings.host}:{mcp.settings.port}",
+              file=sys.stderr)
         mcp.run(transport="streamable-http")
     elif transport in _STDIO_TRANSPORTS:
         mcp.run()
