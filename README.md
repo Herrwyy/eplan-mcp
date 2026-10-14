@@ -41,10 +41,14 @@ inside EPLAN in real time and consult the documentation through search.
 ### Local EPLAN automation (P8)
 
 ```bash
-pip install pythonnet mcp
+pip install -r eplan-p8-mcp-server/mcp_server/requirements.txt
 claude mcp add eplan -- python YOURPATH/eplan-p8-mcp-server/mcp_server/server.py
 claude mcp list   # should list "eplan"
 ```
+
+The requirements file locks the verified dependency combination
+(mcp 1.30.0 / pythonnet 3.2.1 on Windows x64 + Python 3.12 + EPLAN 2026);
+see [`eplan-p8-mcp-server/INSTALL.md`](eplan-p8-mcp-server/INSTALL.md).
 
 Then start EPLAN, open Claude Code, and say `connect to eplan`. The full guide is in
 [`eplan-p8-mcp-server/mcp_server/README.md`](eplan-p8-mcp-server/mcp_server/README.md).
