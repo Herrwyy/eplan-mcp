@@ -1,12 +1,17 @@
 # EPLAN MCP Server Dependencies
+#
+# Compatibility scope of the stdio-stability-v1 baseline:
+#   Windows x64, Python 3.12, EPLAN 2026.
+# The floors below are the versions that combination was verified with
+# (mcp 1.30.0, pythonnet 3.2.1); the upper bounds keep future major
+# releases - which may change protocol or CLR-loading behaviour - out
+# until they are tested. See INSTALL.md and RELEASE_NOTES.md.
 
-# MCP SDK (>=1.8.0 for the streamable-http transport used by MCP_TRANSPORT=http)
-mcp>=1.8.0
+# MCP SDK (streamable-http transport for MCP_TRANSPORT=http; 1.30.0 verified)
+mcp>=1.30.0,<2
 
-# .NET interop for EPLAN API
-pythonnet>=3.0.0
+# .NET interop for EPLAN API (3.2.1 verified with Python 3.12)
+pythonnet>=3.2.1,<4
 
 # Asset Administration Shell (aas_* tools): AAS metamodel V3 + AASX packaging
-basyx-python-sdk>=2.0.1
-
-
+basyx-python-sdk>=2.0.1,<3
