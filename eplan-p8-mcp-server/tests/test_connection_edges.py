@@ -74,6 +74,16 @@ def test_detect_installed_versions_missing_root(monkeypatch, tmp_path):
     assert eplan_connection.detect_installed_versions() == []
 
 
+def test_detect_installed_versions_bad_root_degrades_to_empty(monkeypatch, caplog):
+    # A malformed EPLAN_PLATFORM_ROOT used to raise WinError 123 out of
+    # os.listdir and kill the server at startup (before it ever answered a
+    # request). It must degrade to "nothing installed" plus a warning.
+    monkeypatch.setattr(eplan_connection, "PLATFORM_ROOT", "C:\\no such\\root\x00")
+    with caplog.at_level("WARNING", logger="EPLAN"):
+        assert eplan_connection.detect_installed_versions() == []
+    assert any("Cannot list EPLAN platform root" in r.message for r in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # get_manager singleton semantics
 # ---------------------------------------------------------------------------
