@@ -39,7 +39,27 @@ OLD + PYTHONUNBUFFERED=1, FIRST STDOUT LINE: 'EPLAN MCP Server\n'
 Fix: all startup diagnostics go to **stderr** — the diagnostics channel in
 every transport. stdout now carries only what the MCP SDK writes to it.
 
-### 2. CLR initialization order: select the runtime, then import clr
+### 2. .NET-side stdout: Console.Out redirected to Console.Error
+
+When the EPLAN gRPC connection is established, the remote greeting
+("Server response: Hello my friend …") is written by .NET through
+`Console.Out` — the process's real stdout. In stdio mode that stream is the
+JSON-RPC channel, and a real MCP client parsing stdout line by line fails
+the session on the first non-JSON line, exactly like the banner bug above
+but emitted from native code no Python `print` ever touched.
+
+`_setup_api` now calls `System.Console.SetOut(System.Console.Error)` for
+the life of the process — the same policy as the startup banner
+(diagnostics to stderr). Placement follows the ordering contract:
+
+    runtime selection → import clr → DLL load → Console redirect → RemoteClient
+
+so the redirect is in place before any `EplanRemoteClient` can exist.
+Nothing else reads .NET stdout (results travel via result files), so no
+behaviour changes beyond the destination of .NET console writes; a retry of
+`_setup_api` harmlessly re-applies the idempotent redirect.
+
+### 3. CLR initialization order: select the runtime, then import clr
 
 `mcp_server/eplan_connection.py` already called
 `_select_dotnet_runtime()` before its single `import clr`, but a failed
@@ -70,7 +90,7 @@ The ordering contract itself is locked by tests (see below), including a
 source-order assertion — once `clr` is in `sys.modules` the import is a no-op,
 so no runtime observation can distinguish correct from incorrect ordering.
 
-### 3. Public dependencies locked to the verified combination
+### 4. Public dependencies locked to the verified combination
 
 `mcp_server/requirements.txt`:
 
@@ -101,10 +121,14 @@ so the post-registration prune pass remains necessary and unchanged).
 - `tests/test_clr_init_order_offline.py` — locks the runtime-selection-before-
   `import clr` source order; the netfx path performs no pythonnet import; a
   failed CoreCLR selection stops `_setup_api` before `import clr` with the
-  actionable error; and a full happy-path run against recording fakes
+  actionable error; a full happy-path run against recording fakes
   (no real CLR is ever started in the test process) verifies the
-  LoadFrom/AddReference sequence and single `AssemblyResolve` registration
-  across retries.
+  LoadFrom/AddReference sequence, the `Console.SetOut(Console.Error)`
+  redirect and its position after DLL loading, and single
+  `AssemblyResolve` registration across retries; and a source-level test
+  asserts the Console redirect sits inside `_setup_api` before any
+  `EplanRemoteClient` creation site (all of which are behind the
+  `_setup_api` gate).
 - `tests/test_connection_edges.py` — gains the malformed-`EPLAN_PLATFORM_ROOT`
   degradation case for `detect_installed_versions`.
 
@@ -112,7 +136,8 @@ so the post-registration prune pass remains necessary and unchanged).
 
 - Baseline before changes: `1379 passed, 3 skipped` (`-m "not live"`) on
   Python 3.12.7 with mcp 1.30.0 / pythonnet 3.2.1.
-- After changes: full offline suite green including the new tests.
+- After changes: full offline suite green including the new tests
+  (`1389 passed, 3 skipped` at the final count).
 - The stdout-pollution bug was reproduced against the unfixed baseline (see
   §1) and is asserted fixed by the protocol test on every run.
 - No live EPLAN instance was used, and no real project or deployment was

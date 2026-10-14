@@ -435,6 +435,19 @@ class EPLANConnectionManager:
             clr.AddReference("Eplan.EplApi.RemoteClientu")
             clr.AddReference("Eplan.EplApi.Remotingu")
 
+            # .NET code writes to this process's real stdout via Console.Out -
+            # most notably the EPLAN remoting greeting ("Server response:
+            # Hello my friend ...") printed when the gRPC connection is
+            # established. On the stdio transport that stream is the JSON-RPC
+            # channel, and a single non-JSON line kills a client session that
+            # parses stdout line by line. Point .NET's stdout at stderr for
+            # the life of the process - the same policy as the startup banner
+            # in server.py. Ordering contract: runtime selection -> import
+            # clr -> DLL load -> this redirect -> the first RemoteClient any
+            # caller creates; tests/test_clr_init_order_offline.py locks the
+            # source order. Harmlessly re-set when _setup_api re-runs.
+            System.Console.SetOut(System.Console.Error)
+
             logger.info(f"EPLAN API loaded from: {eplan_path}")
             return True
 
