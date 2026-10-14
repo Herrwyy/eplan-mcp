@@ -83,10 +83,15 @@ eplan-p8-mcp-server/
 
 ## Requirements
 
-- **EPLAN Electric P8** installed (2024, 2025, 2026, or 2027)
-- **Python 3.10+** (64-bit, to match EPLAN's process)
-- Dependencies: `pip install -r requirements.txt` (`pythonnet`, `mcp`,
-  `basyx-python-sdk` for the `aas_*` tools)
+- **EPLAN Electric P8** installed (2024, 2025, 2026, or 2027; first-release
+  verification is EPLAN 2026)
+- **Python 3.12** verified (64-bit, to match EPLAN's process; 3.10+ expected
+  to work)
+- Dependencies: `pip install -r requirements.txt` — locked to the verified
+  combination `mcp>=1.30.0,<2` / `pythonnet>=3.2.1,<4`
+  (`basyx-python-sdk` is optional and only enables the `aas_*` tools).
+  See [../INSTALL.md](../INSTALL.md) for the full install guide and
+  compatibility scope.
 
 ---
 
