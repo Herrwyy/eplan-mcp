@@ -84,25 +84,49 @@ def detect_installed_versions() -> list:
                 installs[major] = entry
     except FileNotFoundError:
         pass
+    except (OSError, ValueError) as e:
+        # A malformed EPLAN_PLATFORM_ROOT (bad syntax - ValueError for e.g. an
+        # embedded NUL, WinError 123 for separators; permission denied; a file
+        # where a directory is expected) must degrade to "no versions found",
+        # not crash the server at startup - the banner then names the real
+        # problem on stderr and every tool reports a clear not-installed
+        # error instead of the process dying before it ever serves a request.
+        logger.warning(f"Cannot list EPLAN platform root {PLATFORM_ROOT!r}: {e}")
+        return []
     return sorted(installs.values(), key=lambda e: _version_key(e["full_version"]), reverse=True)
 
 
-def _select_dotnet_runtime(runtime: str) -> None:
+def _select_dotnet_runtime(runtime: str) -> bool:
     """Select the pythonnet runtime. Must run before the first `import clr`
     and can only happen once per process — switching afterwards requires
-    restarting the MCP server."""
+    restarting the MCP server.
+
+    Returns False when an explicitly required runtime could not be selected.
+    The caller must then NOT reach `import clr`: pythonnet would silently start
+    its default (.NET Framework) runtime instead, on which DLLs from a .NET 8
+    EPLAN build cannot load — turning a clear configuration problem into
+    obscure load failures on every later call.
+    """
+    if runtime != "coreclr":
+        # Default (netfx) runtime: no explicit selection exists or is needed.
+        logger.info("pythonnet: using default runtime (EPLAN 2026 or older)")
+        return True
     try:
         from pythonnet import load as _pnet_load
-        if runtime == "coreclr":
-            _pnet_load("coreclr")
-            logger.info("pythonnet: coreclr (.NET 8) runtime selected (EPLAN 2027+)")
-        else:
-            logger.info("pythonnet: using default runtime (EPLAN 2026 or older)")
+        _pnet_load("coreclr")
+        logger.info("pythonnet: coreclr (.NET 8) runtime selected (EPLAN 2027+)")
+        return True
     except Exception as _pnet_err:
-        logger.warning(f"pythonnet: runtime selection failed ({_pnet_err})")
+        logger.warning(f"pythonnet: coreclr runtime selection failed ({_pnet_err})")
+        return False
 
 
 EPLAN_EXE_NAME = "EPLAN.exe"
+
+# Directories whose AssemblyResolve handler is already registered in this
+# process (see _setup_api). Module-level, not per-manager, because the AppDomain
+# the handler attaches to outlives any single EPLANConnectionManager.
+_ASSEMBLY_RESOLVE_PATHS = set()
 
 # Severity ranking for the message slice, most important first.
 #
@@ -346,7 +370,24 @@ class EPLANConnectionManager:
                 logger.info(f"Auto-detected EPLAN {chosen['full_version']} (newest installed)")
 
             self.target_version = chosen["version"]
-            _select_dotnet_runtime(chosen["runtime"])
+
+            # Ordering contract: runtime selection must succeed before the
+            # first `import clr`. A failed selection that falls through to the
+            # import pins pythonnet's default (.NET Framework) runtime, on
+            # which the DLLs of a .NET 8 EPLAN build cannot load - so the
+            # failure is reported here instead of being warned about and
+            # walked into. tests/test_clr_init_order_offline.py locks both
+            # the source order and this fail-fast behaviour.
+            if not _select_dotnet_runtime(chosen["runtime"]):
+                self.last_error = (
+                    f"Could not select the .NET 8 (coreclr) runtime required by "
+                    f"EPLAN {chosen['full_version']}; the server will not fall "
+                    f"back to the .NET Framework runtime, on which this "
+                    f"version's DLLs cannot load. Install the .NET 8 runtime "
+                    f"(and a working pythonnet), then restart the MCP server."
+                )
+                logger.error(self.last_error)
+                return False
 
             import clr
 
@@ -377,7 +418,13 @@ class EPLANConnectionManager:
                     return System.Reflection.Assembly.LoadFrom(candidate)
                 return None
 
-            System.AppDomain.CurrentDomain.AssemblyResolve += _resolve_from_eplan
+            # Registered once per process per target directory: _setup_api can
+            # run again after a failure, and each `+=` would stack another
+            # resolver - and another closure - onto the AppDomain for the rest
+            # of the process lifetime.
+            if eplan_path not in _ASSEMBLY_RESOLVE_PATHS:
+                System.AppDomain.CurrentDomain.AssemblyResolve += _resolve_from_eplan
+                _ASSEMBLY_RESOLVE_PATHS.add(eplan_path)
 
             for dll in ("Eplan.EplApi.Starteru.dll", "Eplan.EplApi.RemoteClientu.dll", "Eplan.EplApi.Remotingu.dll"):
                 dll_path = os.path.join(eplan_path, dll)
